@@ -4,10 +4,10 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <type_traits>
 #include <typeinfo>
-
 
 template <typename T>
 class DynamicArray {
@@ -43,6 +43,184 @@ public:
         return data_[index];
     }
 
+    class Iterator;
+
+    class ElementProxy {
+    public:
+        ElementProxy(DynamicArray* owner, std::size_t index)
+            : owner_(owner), index_(index) {}
+
+        ElementProxy(const ElementProxy&) = default;
+
+        ElementProxy& operator=(const T& value) {
+            owner_->set(index_, value);
+            return *this;
+        }
+
+        ElementProxy& operator=(const ElementProxy& other) {
+            return *this = static_cast<const T&>(other);
+        }
+
+        operator const T&() const {
+            return owner_->get(index_);
+        }
+
+        friend std::ostream& operator<<(std::ostream& out, const ElementProxy& element) {
+            return out << element.owner_->get(element.index_);
+        }
+
+    private:
+        friend class Iterator;
+        DynamicArray* owner_;
+        std::size_t index_;
+    };
+
+    ElementProxy operator[](std::size_t index) {
+        checkIndex(index);
+        return ElementProxy(this, index);
+    }
+
+    const T& operator[](std::size_t index) const {
+        return get(index);
+    }
+
+    bool operator==(const DynamicArray& other) const {
+        if (size_ != other.size_) {
+            return false;
+        }
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (!(data_[i] == other.data_[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool operator!=(const DynamicArray& other) const {
+        return !(*this == other);
+    }
+
+    DynamicArray& operator+=(const DynamicArray& other) {
+        if constexpr (std::is_arithmetic_v<T>) {
+            for (std::size_t i = 0; i < std::min(size_, other.size_); ++i) {
+                data_[i] += other.data_[i];
+            }
+        } else {
+            throw std::bad_typeid();
+        }
+        return *this;
+    }
+
+    DynamicArray& operator-=(const DynamicArray& other) {
+        if constexpr (std::is_arithmetic_v<T>) {
+            for (std::size_t i = 0; i < std::min(size_, other.size_); ++i) {
+                data_[i] -= other.data_[i];
+            }
+        } else {
+            throw std::bad_typeid();
+        }
+        return *this;
+    }
+
+    DynamicArray& operator+=(const T& scalar) {
+        if constexpr (std::is_arithmetic_v<T>) {
+            for (std::size_t i = 0; i < size_; ++i) {
+                data_[i] += scalar;
+            }
+        } else {
+            throw std::bad_typeid();
+        }
+        return *this;
+    }
+
+    DynamicArray& operator-=(const T& scalar) {
+        if constexpr (std::is_arithmetic_v<T>) {
+            for (std::size_t i = 0; i < size_; ++i) {
+                data_[i] -= scalar;
+            }
+        } else {
+            throw std::bad_typeid();
+        }
+        return *this;
+    }
+
+    class Iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = T;
+        using difference_type = std::ptrdiff_t;
+        using pointer = void;
+        using reference = ElementProxy&;
+
+        Iterator(DynamicArray* owner, std::size_t index)
+            : owner_(owner), index_(index), proxy_(owner, index) {}
+
+        Iterator(const Iterator&) = default;
+
+        Iterator& operator=(const Iterator& other) {
+            if (this != &other) {
+                owner_ = other.owner_;
+                index_ = other.index_;
+                proxy_.owner_ = owner_;
+                proxy_.index_ = index_;
+            }
+            return *this;
+        }
+
+        ElementProxy& operator*() const {
+            return proxy_;
+        }
+
+        Iterator& operator++() {
+            ++index_;
+            proxy_.index_ = index_;
+            return *this;
+        }
+
+        Iterator operator++(int) {
+            Iterator old = *this;
+            ++(*this);
+            return old;
+        }
+
+        bool operator==(const Iterator& other) const {
+            return owner_ == other.owner_ && index_ == other.index_;
+        }
+
+        bool operator!=(const Iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        DynamicArray* owner_;
+        std::size_t index_;
+        mutable ElementProxy proxy_;
+    };
+
+    Iterator begin() {
+        return Iterator(this, 0);
+    }
+
+    Iterator end() {
+        return Iterator(this, size_);
+    }
+
+    const T* begin() const {
+        return data_;
+    }
+
+    const T* end() const {
+        return data_ ? data_ + size_ : nullptr;
+    }
+
+    const T* cbegin() const {
+        return begin();
+    }
+
+    const T* cend() const {
+        return end();
+    }
+
     void append(const T& value) {
         checkValue(value);
         T* expanded = new T[size_ + 1]{};
@@ -61,23 +239,11 @@ public:
     }
 
     void add(const DynamicArray& other) {
-        if constexpr (std::is_arithmetic_v<T>) {
-            for (std::size_t i = 0; i < std::min(size_, other.size_); ++i) {
-                data_[i] += other.data_[i];
-            }
-        } else {
-            throw std::bad_typeid();
-        }
+        *this += other;
     }
 
     void subtract(const DynamicArray& other) {
-        if constexpr (std::is_arithmetic_v<T>) {
-            for (std::size_t i = 0; i < std::min(size_, other.size_); ++i) {
-                data_[i] -= other.data_[i];
-            }
-        } else {
-            throw std::bad_typeid();
-        }
+        *this -= other;
     }
 
     void print(std::ostream& out = std::cout) const {

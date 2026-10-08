@@ -236,6 +236,154 @@ int main() {
     assert(caught);
     std::cout << "[OK] std::bad_typeid для строкового массива\n";
 
-    std::cout << "Все проверки части 3 прошли успешно.\n";
+    DynamicArray<int> indexed(3);
+    indexed[0] = -100;
+    indexed[1] = 27;
+    indexed[2] = 100;
+    assert(indexed.get(0) == -100 && indexed.get(1) == 27 && indexed.get(2) == 100);
+    const DynamicArray<int>& constIndexed = indexed;
+    assert(constIndexed[0] == -100 && constIndexed[1] == 27);
+
+    caught = false;
+    try {
+        indexed[1] = 101;
+    } catch (const std::invalid_argument&) {
+        caught = true;
+    }
+    assert(caught && indexed.get(1) == 27);
+
+    caught = false;
+    try {
+        indexed[3] = 7;
+    } catch (const std::out_of_range&) {
+        caught = true;
+    }
+    assert(caught);
+
+    caught = false;
+    try {
+        constIndexed[3];
+    } catch (const std::out_of_range&) {
+        caught = true;
+    }
+    assert(caught);
+
+    indexed[1] = indexed[0];
+    assert(indexed.get(1) == -100);
+    std::ostringstream proxyStream;
+    proxyStream << indexed[2];
+    assert(proxyStream.str() == "100");
+    std::cout << "[OK] operator[]: чтение, запись, проверка диапазона и индекса\n";
+
+    DynamicArray<int> equalArray(3);
+    equalArray.set(0, -100);
+    equalArray.set(1, -100);
+    equalArray.set(2, 100);
+    assert(indexed == equalArray);
+    assert(!(indexed != equalArray));
+    equalArray.set(2, 0);
+    assert(indexed != equalArray);
+    assert(!(indexed == equalArray));
+    assert(indexed != small);
+    assert(emptyCopy == DynamicArray<int>(0));
+    assert(words == words);
+    std::cout << "[OK] operator== и operator!=: элементы, размер и строки\n";
+
+    DynamicArray<int> combined(4);
+    combined.set(0, 100);
+    combined.set(1, 2);
+    combined.set(2, 3);
+    combined.set(3, 4);
+    DynamicArray<int> few(2);
+    few.set(0, 100);
+    few.set(1, -2);
+    combined += few;
+    assert(combined.size() == 4);
+    assert(combined.get(0) == 200 && combined.get(1) == 0);
+    assert(combined.get(2) == 3 && combined.get(3) == 4);
+    combined -= few;
+    assert(combined.get(0) == 100 && combined.get(1) == 2);
+    assert(combined.get(2) == 3 && combined.get(3) == 4);
+    few += combined;
+    assert(few.size() == 2 && few.get(0) == 200 && few.get(1) == 0);
+    few -= combined;
+    assert(few.get(0) == 100 && few.get(1) == -2);
+    std::cout << "[OK] operator+= и operator-=: массивы разной длины\n";
+
+    combined += 10;
+    assert(combined.get(0) == 110 && combined.get(1) == 12);
+    assert(combined.get(2) == 13 && combined.get(3) == 14);
+    combined -= 10;
+    assert(combined.get(0) == 100 && combined.get(1) == 2);
+    assert(combined.get(2) == 3 && combined.get(3) == 4);
+    DynamicArray<double> scalarDoubles(2);
+    scalarDoubles[0] = 200.25;
+    scalarDoubles[1] = -150.5;
+    scalarDoubles += 0.5;
+    assert(scalarDoubles.get(0) == 200.75 && scalarDoubles.get(1) == -150.0);
+    scalarDoubles -= 0.5;
+    assert(scalarDoubles.get(0) == 200.25 && scalarDoubles.get(1) == -150.5);
+    std::cout << "[OK] operator+= и operator-=: числовые скаляры\n";
+
+    caught = false;
+    try {
+        words += words;
+    } catch (const std::bad_typeid&) {
+        caught = true;
+    }
+    assert(caught);
+    caught = false;
+    try {
+        words += std::string("!");
+    } catch (const std::bad_typeid&) {
+        caught = true;
+    }
+    assert(caught);
+    std::cout << "[OK] Нечисловая арифметика вызывает std::bad_typeid\n";
+
+    DynamicArray<int> iterated(3);
+    int nextValue = 1;
+    for (auto& element : iterated) {
+        element = nextValue++;
+    }
+    assert(iterated.get(0) == 1 && iterated.get(1) == 2 && iterated.get(2) == 3);
+    int sum = 0;
+    for (const auto& element : static_cast<const DynamicArray<int>&>(iterated)) {
+        sum += element;
+    }
+    assert(sum == 6);
+    auto iterator = iterated.begin();
+    *iterator = 10;
+    iterator++;
+    *iterator = 20;
+    assert(iterated.get(0) == 10 && iterated.get(1) == 20);
+    auto secondIterator = iterated.begin();
+    ++secondIterator;
+    auto copiedIterator = iterated.begin();
+    copiedIterator = secondIterator;
+    assert(static_cast<int>(*copiedIterator) == 20);
+    assert(iterated.get(0) == 10 && iterated.get(1) == 20);
+    for (auto& word : words) {
+        std::ostringstream s;
+        s << word;
+        assert(!s.str().empty());
+    }
+    caught = false;
+    try {
+        for (auto& element : iterated) {
+            element = 101;
+        }
+    } catch (const std::invalid_argument&) {
+        caught = true;
+    }
+    assert(caught);
+    assert(iterated.get(0) == 10 && iterated.get(1) == 20 && iterated.get(2) == 3);
+    DynamicArray<int> zeroLength(0);
+    assert(zeroLength.begin() == zeroLength.end());
+    const DynamicArray<int>& constZeroLength = zeroLength;
+    assert(constZeroLength.begin() == constZeroLength.end());
+    std::cout << "[OK] begin/end: изменяемые и константные итераторы\n";
+
+    std::cout << "Все проверки части 4 прошли успешно.\n";
     return 0;
 }
