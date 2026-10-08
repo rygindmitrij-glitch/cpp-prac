@@ -2,3 +2,4 @@ main
 build/
 *.o
 .DS_Store
+main_asan
