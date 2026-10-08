@@ -9,8 +9,37 @@
 #include <stdexcept>
 #include <string>
 #include <typeinfo>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+struct ThrowOnCopy {
+    int value = 0;
+    static bool fail;
+
+    ThrowOnCopy() = default;
+    explicit ThrowOnCopy(int x) : value(x) {}
+
+    ThrowOnCopy& operator=(const ThrowOnCopy& other) {
+        if (fail) {
+            throw std::runtime_error("Копирование запрещено");
+        }
+        value = other.value;
+        return *this;
+    }
+};
+
+bool ThrowOnCopy::fail = false;
+
+void checkByValue(DynamicArray<int> array, const int* originalData, bool moved) {
+    assert(array.size() == 3);
+    assert(array.get(0) == 11);
+    assert((&array.get(0) == originalData) == moved);
+}
 
 int main() {
+    static_assert(std::is_nothrow_move_constructible_v<DynamicArray<int>>);
+    static_assert(std::is_nothrow_move_assignable_v<DynamicArray<int>>);
     DynamicArray<int> a(3);
     assert(a.size() == 3);
     a.set(0, -100);
@@ -384,6 +413,131 @@ int main() {
     assert(constZeroLength.begin() == constZeroLength.end());
     std::cout << "[OK] begin/end: изменяемые и константные итераторы\n";
 
-    std::cout << "Все проверки части 4 прошли успешно.\n";
+    DynamicArray<int> assignmentSource(3);
+    assignmentSource.set(0, 1);
+    assignmentSource.set(1, 2);
+    assignmentSource.set(2, 3);
+    DynamicArray<int> assignmentTarget(1);
+    assignmentTarget.set(0, 99);
+    assert(&(assignmentTarget = assignmentSource) == &assignmentTarget);
+    assert(assignmentTarget == assignmentSource);
+    assignmentTarget.set(0, 42);
+    assert(assignmentSource.get(0) == 1);
+    std::cout << "[OK] Копирующее присваивание: глубокая копия и разный размер\n";
+
+    DynamicArray<int> chainA(1);
+    DynamicArray<int> chainB(2);
+    DynamicArray<int> chainC(3);
+    chainC.set(0, 4);
+    chainC.set(1, 5);
+    chainC.set(2, 6);
+    chainA = chainB = chainC;
+    assert(chainA == chainC && chainB == chainC);
+    chainB.set(0, 77);
+    assert(chainA.get(0) == 4 && chainC.get(0) == 4);
+    DynamicArray<int> emptyAssigned(0);
+    chainA = emptyAssigned;
+    assert(chainA.size() == 0);
+    chainA = chainC;
+    assert(chainA == chainC);
+    std::cout << "[OK] Цепочечное присваивание, копирование пустого массива\n";
+
+    const int* selfPtr = &chainC.get(0);
+    DynamicArray<int>& copyAlias = chainC;
+    chainC = copyAlias;
+    assert(chainC.size() == 3 && &chainC.get(0) == selfPtr);
+    assert(chainC.get(0) == 4 && chainC.get(2) == 6);
+    std::cout << "[OK] Самоприсваивание копированием\n";
+
+    DynamicArray<ThrowOnCopy> failSource(2);
+    failSource.set(0, ThrowOnCopy(100));
+    failSource.set(1, ThrowOnCopy(200));
+    DynamicArray<ThrowOnCopy> failDestination(1);
+    failDestination.set(0, ThrowOnCopy(15));
+    ThrowOnCopy::fail = true;
+    caught = false;
+    try {
+        failDestination = failSource;
+    } catch (const std::runtime_error&) {
+        caught = true;
+    }
+    ThrowOnCopy::fail = false;
+    assert(caught);
+    assert(failDestination.size() == 1);
+    assert(failDestination.get(0).value == 15);
+    assert(failSource.get(1).value == 200);
+    std::cout << "[OK] Исключение при копировании: данные назначения сохранены\n";
+
+    DynamicArray<int> moveSource(3);
+    moveSource.set(0, 7);
+    moveSource.set(1, 8);
+    moveSource.set(2, 9);
+    const int* movePtr = &moveSource.get(0);
+    DynamicArray<int> moved(std::move(moveSource));
+    assert(moveSource.size() == 0);
+    assert(moveSource.begin() == moveSource.end());
+    assert(moved.size() == 3 && &moved.get(0) == movePtr);
+    assert(moved.get(2) == 9);
+    moveSource.append(10);
+    assert(moveSource.size() == 1 && moveSource.get(0) == 10);
+    std::cout << "[OK] Move-конструктор: адрес сохранён, источник обнулён и пригоден для append\n";
+
+    DynamicArray<int> moveAssigned(2);
+    moveAssigned.set(0, 35);
+    moveAssigned.set(1, 36);
+    const int* transferred = &moved.get(0);
+    assert(&(moveAssigned = std::move(moved)) == &moveAssigned);
+    assert(moved.size() == 0);
+    assert(moved.begin() == moved.end());
+    assert(moveAssigned.size() == 3 && &moveAssigned.get(0) == transferred);
+    assert(moveAssigned.get(1) == 8);
+    const int* samePtr = &moveAssigned.get(0);
+    DynamicArray<int>& moveAlias = moveAssigned;
+    moveAssigned = std::move(moveAlias);
+    assert(&moveAssigned.get(0) == samePtr && moveAssigned.get(2) == 9);
+    std::cout << "[OK] Move-присваивание: освобождение прежних данных и защита от self-move\n";
+
+    DynamicArray<int> byValue(3);
+    byValue.set(0, 11);
+    byValue.set(1, 22);
+    byValue.set(2, 33);
+    const int* beforeCopy = &byValue.get(0);
+    checkByValue(byValue, beforeCopy, false);
+    assert(byValue.size() == 3 && &byValue.get(0) == beforeCopy);
+    checkByValue(std::move(byValue), beforeCopy, true);
+    assert(byValue.size() == 0);
+    std::cout << "[OK] Передача по значению: copy выделяет память, move переносит указатель\n";
+
+    DynamicArray<int> vectorCopied(2);
+    vectorCopied.set(0, 15);
+    vectorCopied.set(1, 16);
+    const int* vectorCopyPtr = &vectorCopied.get(0);
+    DynamicArray<int> vectorMoved(2);
+    vectorMoved.set(0, 45);
+    vectorMoved.set(1, 46);
+    const int* vectorMovePtr = &vectorMoved.get(0);
+    std::vector<DynamicArray<int>> container;
+    container.reserve(2);
+    container.push_back(vectorCopied);
+    container.push_back(std::move(vectorMoved));
+    assert(&container[0].get(0) != vectorCopyPtr);
+    assert(&container[1].get(0) == vectorMovePtr);
+    assert(vectorCopied.size() == 2);
+    assert(vectorMoved.size() == 0);
+    std::cout << "[OK] std::vector: копирование и перемещение массива\n";
+
+    DynamicArray<std::string> stringsSource(2);
+    stringsSource.set(0, "один");
+    stringsSource.set(1, "два");
+    DynamicArray<std::string> stringsMoved(std::move(stringsSource));
+    assert(stringsSource.size() == 0);
+    assert(stringsMoved.get(1) == "два");
+    DynamicArray<std::string> stringsCopy(0);
+    stringsCopy = stringsMoved;
+    stringsCopy.set(0, "другой");
+    assert(stringsMoved.get(0) == "один");
+    std::cout << "[OK] Правило пяти для std::string\n";
+
+    std::cout << "Все проверки части 5 прошли успешно.\n";
     return 0;
 }

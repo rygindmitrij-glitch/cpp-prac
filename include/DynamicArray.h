@@ -5,6 +5,9 @@
 #include <cstddef>
 #include <iostream>
 #include <iterator>
+#include <limits>
+#include <memory>
+#include <new>
 #include <stdexcept>
 #include <type_traits>
 #include <typeinfo>
@@ -13,20 +16,49 @@ template <typename T>
 class DynamicArray {
 public:
     explicit DynamicArray(std::size_t size)
-        : data_(size ? new T[size]{} : nullptr), size_(size) {}
+        : data_(allocate(size)), size_(size) {}
 
     DynamicArray(const DynamicArray& other)
-        : data_(other.size_ ? new T[other.size_] : nullptr), size_(other.size_) {
-        if (size_ != 0) {
-            std::copy(other.data_, other.data_ + size_, data_);
+        : data_(nullptr), size_(0) {
+        std::unique_ptr<T[]> copied(allocate(other.size_));
+        if (other.size_ != 0) {
+            std::copy(other.data_, other.data_ + other.size_, copied.get());
         }
+        data_ = copied.release();
+        size_ = other.size_;
+    }
+
+    DynamicArray(DynamicArray&& other) noexcept
+        : data_(other.data_), size_(other.size_) {
+        other.data_ = nullptr;
+        other.size_ = 0;
     }
 
     ~DynamicArray() {
         delete[] data_;
     }
 
-    DynamicArray& operator=(const DynamicArray&) = delete;
+    DynamicArray& operator=(const DynamicArray& other) {
+        if (this == &other) {
+            return *this;
+        }
+        DynamicArray copy(other);
+        std::swap(data_, copy.data_);
+        std::swap(size_, copy.size_);
+        return *this;
+    }
+
+    DynamicArray& operator=(DynamicArray&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        delete[] data_;
+        data_ = other.data_;
+        size_ = other.size_;
+        other.data_ = nullptr;
+        other.size_ = 0;
+        return *this;
+    }
 
     std::size_t size() const {
         return size_;
@@ -281,6 +313,13 @@ public:
 private:
     T* data_;
     std::size_t size_;
+
+    static T* allocate(std::size_t count) {
+        if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+            throw std::bad_array_new_length();
+        }
+        return count ? new T[count]{} : nullptr;
+    }
 
     static void checkValue(const T& value) {
         if constexpr (std::is_integral_v<T>) {
